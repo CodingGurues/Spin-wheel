@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Spin Wheel Pro</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside id="sidebar" class="sidebar" aria-label="Main navigation">
+      <button id="sidebarToggle" class="sidebar-toggle" aria-expanded="true" aria-controls="sidebarContent" title="Collapse sidebar">
+        <span class="caret">❮</span><span class="toggle-text">Menu</span>
+      </button>
+      <nav id="sidebarContent" class="sidebar-content" aria-label="Sections">
+        <button class="nav-item active" data-view="homeView" aria-label="Home" title="Home"><span class="icon" aria-hidden="true">🏠</span><span class="label">Home</span></button>
+        <button class="nav-item" data-view="entriesView" aria-label="Entries" title="Entries"><span class="icon" aria-hidden="true">📝</span><span class="label">Entries</span></button>
+        <button class="nav-item" data-view="resultsView" aria-label="Results" title="Results"><span class="icon" aria-hidden="true">🏆</span><span class="label">Results</span></button>
+        <button class="nav-item" data-view="settingsView" aria-label="Settings" title="Settings"><span class="icon" aria-hidden="true">⚙️</span><span class="label">Settings</span></button>
+      </nav>
+    </aside>
+
+    <button id="reopenSidebar" class="reopen-sidebar hidden" aria-label="Expand sidebar" title="Expand sidebar">☰</button>
+
+    <main class="main-content">
+      <header class="topbar">
+        <h1>🎡 <span data-i18n="appTitle">Spin Wheel Pro</span></h1>
+        <div class="toolbar" role="group" aria-label="Primary actions">
+          <button id="newBtn">New</button>
+          <button id="saveBtn">Save JSON</button>
+          <button id="loadBtn">Load JSON</button>
+          <input id="loadInput" type="file" accept="application/json" hidden />
+          <button id="shareBtn">Share</button>
+          <button id="fullscreenBtn" aria-label="Toggle fullscreen">⛶</button>
+        </div>
+      </header>
+
+      <section id="homeView" class="view active" aria-label="Wheel">
+        <div class="wheel-layout">
+          <div class="wheel-card">
+            <h2 id="wheelTitleText">My Wheel</h2>
+            <div class="wheel-stage">
+              <canvas id="wheelCanvas" width="900" height="900" role="img" aria-label="Random name picker wheel"></canvas>
+              <div id="pointer" aria-hidden="true"></div>
+              <button id="spinBtn" class="spin-btn" aria-label="Spin wheel">Click to spin</button>
+            </div>
+          </div>
+          <div class="quick-actions" aria-label="Entry tools">
+            <h3>Entries</h3>
+            <p class="sub">Manage names directly while viewing the wheel.</p>
+            <textarea id="entriesInput" rows="14" aria-label="Entries list"></textarea>
+            <div class="button-row">
+              <button id="shuffleBtn">Shuffle</button>
+              <button id="sortBtn">Sort A-Z</button>
+              <button id="undoBtn">Undo</button>
+              <button id="importSheetBtn">Import Google Sheet</button>
+            </div>
+            <label><input id="advancedMode" type="checkbox" /> Advanced mode (per-entry weight/color/image)</label>
+            <div id="advancedEditor" class="advanced-editor hidden" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <div class="mobile-nav-wrap">
+          <button id="mobileNavToggle" class="mobile-nav-toggle" aria-expanded="false" aria-controls="mobileNavMenu">☰ Menu</button>
+          <nav id="mobileNavMenu" class="mobile-nav-menu hidden" aria-label="Mobile navigation">
+            <button class="nav-item" data-view="entriesView">Entries</button>
+            <button class="nav-item" data-view="resultsView">Results</button>
+            <button class="nav-item" data-view="settingsView">Settings</button>
+          </nav>
+        </div>
+      </section>
+
+      <section id="entriesView" class="view" aria-label="Entries editor">
+        <h2>Entries</h2>
+        <p class="sub">One item per line. Supports emojis and non-Latin text.</p>
+        <p class="sub">Use Home to edit entries side-by-side with the wheel.</p>
+      </section>
+
+      <section id="resultsView" class="view" aria-label="Spin results">
+        <h2>Results</h2>
+        <p class="sub">History of winners from previous spins.</p>
+        <ul id="resultsList"></ul>
+        <div class="button-row">
+          <button id="sortResultsBtn">Sort</button>
+          <button id="clearResultsBtn">Clear</button>
+        </div>
+      </section>
+
+      <section id="settingsView" class="view" aria-label="App settings">
+        <h2>Settings</h2>
+        <button id="openSettingsDialog">Open settings dialog</button>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="winnerDialog" aria-labelledby="winnerTitle">
+    <h3 id="winnerTitle">We have a winner!</h3>
+    <p id="winnerName"></p>
+    <p id="winnerTextAlt" class="sub">Visual effects are optional and can be disabled in settings.</p>
+    <div class="button-row">
+      <button id="keepWinnerBtn">Keep</button>
+      <button id="removeWinnerBtn">Remove</button>
+      <button id="closeWinnerBtn">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="settingsDialog" aria-label="Settings dialog">
+    <h3>Preferences & settings</h3>
+    <p class="sub">Adjust wheel behaviour, appearance, accessibility, and language.</p>
+
+    <div class="accordion">
+      <section>
+        <button class="acc-header" data-acc="spinAcc" aria-expanded="true"><span>🎯 Spin behavior</span><span>▾</span></button>
+        <div id="spinAcc" class="acc-panel open">
+          <p class="sub">Control duration, speed, and sound cadence.</p>
+          <label>Spin duration <span id="durationValue">11</span>s<input id="durationSlider" type="range" min="1" max="60" value="11" /></label>
+          <div class="button-row"><button class="preset" data-v="6">Quick</button><button class="preset" data-v="11">Normal</button><button class="preset" data-v="19">Long</button></div>
+          <label><input id="spinSlowly" type="checkbox" /> Spin slowly</label>
+          <label>Visible sectors <input id="visibleSectors" type="range" min="3" max="24" value="10" /></label>
+          <label>Tick sound <select id="tickSound"><option value="wood">Wood</option><option value="click">Click</option><option value="bell">Bell</option></select></label>
+          <label>Tick volume <input id="tickVolume" type="range" min="0" max="1" step="0.01" value="0.4" /></label>
+        </div>
+      </section>
+
+      <section>
+        <button class="acc-header" data-acc="effectsAcc" aria-expanded="false"><span>🎉 Winner & effects</span><span>▾</span></button>
+        <div id="effectsAcc" class="acc-panel">
+          <p class="sub">Choose celebration style and winner popup content.</p>
+          <label>Winner message <input id="winnerMessage" value="We have a winner!" /></label>
+          <label><input id="showRemoveBtn" type="checkbox" checked /> Show remove button</label>
+          <label><input id="confettiToggle" type="checkbox" checked /> Confetti animation</label>
+          <label>Celebrate sound <select id="celebrateSound"><option value="applause">Applause</option><option value="chime">Chime</option><option value="trumpet">Trumpet</option></select></label>
+          <label>Celebrate volume <input id="celebrateVolume" type="range" min="0" max="1" step="0.01" value="0.6" /></label>
+          <label><input id="autoRemove" type="checkbox" /> Auto-remove winner</label>
+          <label>Auto-remove delay (s) <input id="autoRemoveDelay" type="number" min="1" max="60" value="5" /></label>
+        </div>
+      </section>
+
+      <section>
+        <button class="acc-header" data-acc="appearanceAcc" aria-expanded="false"><span>🎨 Appearance</span><span>▾</span></button>
+        <div id="appearanceAcc" class="acc-panel">
+          <p class="sub">Accessible color themes with contrast-safe combinations.</p>
+          <label>Theme <select id="themeSelect"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+          <label>Color palette <select id="paletteSelect"></select></label>
+          <p class="sub">Cue: ★ = high contrast, ● = medium contrast.</p>
+          <label>Primary (validated) <select id="primaryColor"></select></label>
+          <label>Accent (validated) <select id="accentColor"></select></label>
+          <label>Wheel style <select id="colorMode"><option value="palette">Per-sector colors</option><option value="image">Wheel background image</option></select></label>
+          <label>Wheel image <input id="wheelBgUpload" type="file" accept="image/*" aria-label="Upload wheel background image" /></label>
+          <label>Center image <input id="centerImgUpload" type="file" accept="image/*" aria-label="Upload center image" /></label>
+          <label>Center image alt text <input id="centerImageAlt" placeholder="Decorative logo" /></label>
+          <label>Center image size <input id="centerImgSize" type="range" min="40" max="280" value="120" /></label>
+          <label><input id="contoursToggle" type="checkbox" checked /> Sector contours</label>
+          <label><input id="shadowToggle" type="checkbox" /> Wheel shadow</label>
+          <label>Pointer color <input id="pointerColor" type="color" value="#1f5b46" /></label>
+        </div>
+      </section>
+
+      <section>
+        <button class="acc-header" data-acc="appAcc" aria-expanded="false"><span>🌐 App & sharing</span><span>▾</span></button>
+        <div id="appAcc" class="acc-panel">
+          <p class="sub">Language, labels, URL state, and embedding.</p>
+          <label>Language <select id="languageSelect"><option value="en">English</option><option value="es">Español</option></select></label>
+          <label><input id="showSpinText" type="checkbox" checked /> Show "Click to spin" text</label>
+          <label><input id="autoSpinOnLoad" type="checkbox" checked /> Gentle auto-spin on load</label>
+          <label><input id="reduceMotion" type="checkbox" /> Reduce motion (disables auto-spin/confetti)</label>
+          <label><input id="showTitle" type="checkbox" checked /> Show title</label>
+          <label><input id="displayDuplicates" type="checkbox" checked /> Display duplicates</label>
+          <label>Wheel title <input id="wheelTitle" value="My Wheel" /></label>
+          <p><a href="changelog.html" target="_blank" rel="noopener">Changelog</a></p>
+        </div>
+      </section>
+    </div>
+
+    <div class="button-row"><button id="closeSettingsDialog">Close</button></div>
+  </dialog>
+
+  <dialog id="shareDialog" aria-label="Share wizard">
+    <h3>Share wizard</h3>
+    <p class="sub">Generate a link and embed code with current wheel state.</p>
+    <label>Share title <input id="shareTitle" /></label>
+    <label>Visibility <select id="shareVisibility"><option value="spin">Anyone with link can spin</option><option value="spin-copy">Anyone can spin and copy</option><option value="public">Public</option></select></label>
+    <button id="generateShareBtn">Generate</button>
+    <textarea id="shareOut" rows="3" readonly></textarea>
+    <textarea id="embedOut" rows="3" readonly></textarea>
+    <button id="closeShareDialog">Close</button>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
