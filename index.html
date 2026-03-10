@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spin Wheel Pro</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🎡 <span data-i18n="appTitle">Spin Wheel Pro</span> <small id="appVersion">v1.0.0</small></div>
+    <div class="top-actions">
+      <button id="newWheelBtn">New</button>
+      <button id="saveWheelBtn">Save JSON</button>
+      <button id="loadWheelBtn">Load JSON</button>
+      <input id="loadWheelInput" type="file" accept="application/json" hidden />
+      <button id="shareBtn">Share</button>
+      <button id="fullscreenBtn">⛶</button>
+      <button id="languageBtn" aria-label="language selector">🌐</button>
+      <select id="languageSelect" class="compact">
+        <option value="en">English</option>
+        <option value="es">Español</option>
+      </select>
+      <button id="moreBtn">More ▾</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="wheel-pane" id="wheelPane">
+      <canvas id="wheelCanvas" width="900" height="900" aria-label="Spinning wheel" role="img"></canvas>
+      <div id="pointer" aria-hidden="true"></div>
+      <button id="spinBtn" class="spin-overlay" aria-label="Spin wheel">Click to spin</button>
+    </section>
+
+    <aside class="panel" id="sidePanel">
+      <button id="collapsePanelBtn" class="collapse-btn" aria-label="Collapse panel">◀</button>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="entriesTab">Entries</button>
+        <button class="tab" data-tab="resultsTab">Results</button>
+        <button class="tab" data-tab="settingsTab">Settings</button>
+        <button class="tab" data-tab="galleryTab">Gallery</button>
+      </div>
+
+      <section id="entriesTab" class="tab-content active">
+        <div class="row"><label><input type="checkbox" id="advancedMode" /> Advanced mode</label></div>
+        <textarea id="entriesInput" rows="12" aria-label="Entries, one per line"></textarea>
+        <div id="advancedEditor" class="hidden"></div>
+        <div class="button-row">
+          <button id="shuffleBtn">Shuffle</button>
+          <button id="sortBtn">Sort A-Z</button>
+          <button id="undoBtn">Undo</button>
+          <button id="importSheetBtn">Import Sheet</button>
+        </div>
+        <div class="button-row">
+          <button id="addImageBtn">Add image</button>
+          <button id="addWheelBtn">+ Add wheel (beta)</button>
+        </div>
+        <div id="wheelTabs" class="wheel-tabs"></div>
+      </section>
+
+      <section id="resultsTab" class="tab-content">
+        <ul id="resultsList"></ul>
+        <div class="button-row">
+          <button id="sortResultsBtn">Sort</button>
+          <button id="clearResultsBtn">Clear</button>
+        </div>
+      </section>
+
+      <section id="settingsTab" class="tab-content">
+        <label>Title <input id="wheelTitle" type="text" value="My Wheel" /></label>
+        <label><input type="checkbox" id="showTitleToggle" checked /> Show title</label>
+        <label><input type="checkbox" id="showSpinTextToggle" checked /> Show "Click to spin" text</label>
+        <label>Spin duration: <span id="durationValue">11</span>s
+          <input id="durationSlider" type="range" min="1" max="60" value="11" />
+        </label>
+        <div class="button-row compact-row">
+          <button class="presetDuration" data-v="6">Quick</button>
+          <button class="presetDuration" data-v="11">Normal</button>
+          <button class="presetDuration" data-v="19">Long</button>
+        </div>
+        <label>Visible sectors <input id="visibleSectors" type="range" min="3" max="24" value="10" /></label>
+        <label><input type="checkbox" id="spinSlowly" /> Spin slowly</label>
+        <label><input type="checkbox" id="displayDuplicates" checked /> Display duplicates</label>
+        <label>Tick sound
+          <select id="tickSoundSelect">
+            <option value="wood">Wood</option>
+            <option value="click">Click</option>
+            <option value="bell">Bell</option>
+          </select>
+        </label>
+        <label>Tick volume <input id="tickVolume" type="range" min="0" max="1" step="0.01" value="0.4" /></label>
+        <label>Celebrate sound
+          <select id="celebrateSoundSelect">
+            <option value="applause">Applause</option>
+            <option value="chime">Chime</option>
+            <option value="trumpet">Trumpet</option>
+          </select>
+        </label>
+        <label>Celebrate volume <input id="celebrateVolume" type="range" min="0" max="1" step="0.01" value="0.6" /></label>
+        <label><input type="checkbox" id="confettiToggle" checked /> Confetti</label>
+        <label><input type="checkbox" id="autoRemoveToggle" /> Auto-remove winner</label>
+        <label>Auto-remove delay (s) <input id="autoRemoveDelay" type="number" value="5" min="1" max="60" /></label>
+        <label>Winner message <input id="winnerMessage" value="We have a winner!" /></label>
+        <label><input type="checkbox" id="showRemoveBtn" checked /> Show remove button in popup</label>
+
+        <h4>Appearance</h4>
+        <label>Style
+          <select id="colorMode">
+            <option value="palette">One color per section</option>
+            <option value="image">Wheel background image</option>
+          </select>
+        </label>
+        <label>Palette
+          <select id="paletteSelect"></select>
+        </label>
+        <div id="customPalette" class="button-row compact-row"></div>
+        <div class="button-row compact-row"><button id="refreshColorsBtn">Refresh colors</button></div>
+        <label>Background image <input id="wheelBgUpload" type="file" accept="image/*" /></label>
+        <label>Center image <input id="centerImgUpload" type="file" accept="image/*" /></label>
+        <label>Center image size <input id="centerImgSize" type="range" min="40" max="280" value="120" /></label>
+        <label>Page background <input id="pageBgColor" type="color" value="#0f172a" /></label>
+        <label><input type="checkbox" id="gradientToggle" checked /> Gradient overlay</label>
+        <label><input type="checkbox" id="wheelShadowToggle" checked /> Wheel shadow</label>
+        <label><input type="checkbox" id="contoursToggle" checked /> Sector contours</label>
+        <label>Pointer color <input id="pointerColor" type="color" value="#f8fafc" /></label>
+      </section>
+
+      <section id="galleryTab" class="tab-content">
+        <input id="gallerySearch" placeholder="Search public wheels" />
+        <div id="galleryList"></div>
+      </section>
+    </aside>
+  </main>
+
+  <dialog id="winnerDialog">
+    <h3 id="winnerTitle">We have a winner!</h3>
+    <p id="winnerName"></p>
+    <div class="button-row">
+      <button id="keepWinnerBtn">Keep</button>
+      <button id="removeWinnerBtn">Remove</button>
+      <button id="closeWinnerBtn">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="preferencesDialog">
+    <h3>Preferences</h3>
+    <label>Theme
+      <select id="themeSelect">
+        <option value="system">System</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="prefShowSpinText" checked /> Show "Click to spin" text</label>
+    <button id="closePreferencesBtn">Close</button>
+    <p><a href="changelog.html" target="_blank" rel="noopener">View changelog</a></p>
+  </dialog>
+
+  <dialog id="shareDialog">
+    <h3>Share wizard</h3>
+    <label>Title <input id="shareTitle" /></label>
+    <label>Theme
+      <select id="shareTheme"></select>
+    </label>
+    <label>Visibility
+      <select id="shareVisibility">
+        <option value="spin">Anyone with link can spin</option>
+        <option value="spin-copy">Anyone can spin and copy</option>
+        <option value="public">Public gallery</option>
+      </select>
+    </label>
+    <button id="generateShareBtn">Generate</button>
+    <textarea id="shareLinkOut" rows="3" readonly></textarea>
+    <textarea id="embedCodeOut" rows="3" readonly></textarea>
+    <div id="sharePreview"></div>
+    <button id="closeShareBtn">Close</button>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Wheel Gallery</title><link rel="stylesheet" href="styles.css"></head><body><main style="padding:1rem"><h1>Public Gallery</h1><input id="q" placeholder="Search"><div id="list"></div><p><a href="index.html">Back</a></p></main><script>
+const q=document.getElementById('q'),list=document.getElementById('list');
+function r(){const s=q.value.toLowerCase(); const data=JSON.parse(localStorage.getItem('spinwheel-gallery')||'[]').filter(i=>i.visibility==='public'&&(i.wheels?.[0]?.title||'').toLowerCase().includes(s)); list.innerHTML=data.map(i=>`<div class="item"><strong>${i.wheels?.[0]?.title||'Untitled'}</strong><div>Code ${i.code} · Views ${i.views||0} · ${new Date(i.createdAt).toLocaleString()}</div><a href="index.html#${btoa(unescape(encodeURIComponent(JSON.stringify({wheels:i.wheels,settings:i.settings,results:i.results,activeWheelId:i.activeWheelId}))))}">Open wheel</a></div>`).join('')||'No wheels';}
+q.oninput=r;r();
+</script></body></html>
