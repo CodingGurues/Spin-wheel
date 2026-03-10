@@ -180,6 +180,24 @@ function renderAdvancedEditor() {
   box.innerHTML = `<table><tr><th>Name</th><th>Weight</th><th>Color</th><th>Image URL</th></tr>${state.wheel.entries.map((e, i) => `<tr><td><input data-i="${i}" data-k="text" value="${esc(e.text)}"></td><td><input data-i="${i}" data-k="weight" type="number" min="1" value="${e.weight || 1}"></td><td><input data-i="${i}" data-k="color" type="color" value="${e.color || '#3eb489'}"></td><td><input data-i="${i}" data-k="image" value="${esc(e.image || '')}"></td></tr>`).join('')}</table>`;
 }
 
+
+function randomShareId() {
+  return (crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10));
+}
+function saveSharedState(payload) {
+  const key = 'spinwheel-shares';
+  const db = JSON.parse(localStorage.getItem(key) || '{}');
+  let id = randomShareId();
+  while (db[id]) id = randomShareId();
+  db[id] = { payload, createdAt: Date.now() };
+  localStorage.setItem(key, JSON.stringify(db));
+  return id;
+}
+function loadSharedStateById(id) {
+  const db = JSON.parse(localStorage.getItem('spinwheel-shares') || '{}');
+  return db[id]?.payload || null;
+}
+
 function persist() {
   localStorage.setItem('spinwheel-account-default', JSON.stringify({ wheel: state.wheel, results: state.results, settings: state.settings }));
 }
@@ -188,6 +206,15 @@ function encodeUrlState() {
   history.replaceState(null, '', `#${payload}`);
 }
 function restoreState() {
+  const shareId = new URLSearchParams(location.search).get('s');
+  if (shareId) {
+    const shared = loadSharedStateById(shareId);
+    if (shared) {
+      state.wheel = shared.wheel || shared.wheels?.[0] || makeWheel();
+      state.settings = { ...state.settings, ...shared.settings }; state.results = shared.results || [];
+      return;
+    }
+  }
   const hash = location.hash.slice(1);
   if (hash) {
     try {
@@ -246,7 +273,7 @@ function bindUI() {
   $('#newBtn').onclick = () => {
     state.wheel = makeWheel(); state.results = []; state.history = []; state.angle = 0;
     syncEntriesUI(); renderResults(); drawWheel(); persist();
-    history.replaceState(null, '', `${location.pathname}${location.search}`); // keep URL stable without hash
+    history.replaceState(null, '', location.pathname); // keep URL stable by default
     if (state.settings.autoSpinOnLoad && !state.settings.reduceMotion) startIdleAutoSpin();
   };
   $('#saveBtn').onclick = downloadJson;
@@ -330,8 +357,9 @@ async function loadJson(e) {
   hydrateSettingsUI(); syncEntriesUI(); renderResults(); drawWheel(); persist();
 }
 function generateShare() {
-  encodeUrlState();
-  const link = location.href;
+  const payload = { wheel: state.wheel, settings: state.settings, results: state.results.slice(0, 30) };
+  const sid = saveSharedState(payload);
+  const link = `${location.origin}${location.pathname}?s=${sid}`;
   $('#shareOut').value = link;
   $('#embedOut').value = `<iframe src="${link}" width="700" height="700" title="${esc($('#shareTitle').value || state.wheel.title)}"></iframe>`;
 }
