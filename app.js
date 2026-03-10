@@ -1,284 +1,460 @@
+/** Spin Wheel Pro v1.1.0 - client-only, offline-friendly random name picker. */
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 
-const palettes = {
-  vibrant: ['#ff595e', '#ffca3a', '#8ac926', '#1982c4', '#6a4c93', '#f15bb5'],
-  pastel: ['#ffc8dd', '#ffafcc', '#bde0fe', '#a2d2ff', '#cdb4db', '#b8f2e6'],
-  sunset: ['#f94144', '#f3722c', '#f8961e', '#f9844a', '#f9c74f', '#90be6d'],
-  ocean: ['#003049', '#669bbc', '#00a6fb', '#0582ca', '#006494', '#17c3b2'],
-  custom: ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899']
+const I18N = { en: { appTitle: 'Spin Wheel Pro' }, es: { appTitle: 'Ruleta Pro' } };
+const PRESET_ENTRIES = ['Olivia', 'Liam', 'Noah', 'Emma', 'Ava', 'Ethan', 'Mia', 'Lucas'];
+const SAFE_PALETTES = {
+  aurora: { label: '★ Aurora (high contrast)', colors: ['#0f172a', '#e2e8f0', '#1d4ed8', '#f8fafc', '#334155', '#fef3c7'] },
+  slateGold: { label: '★ Slate + Gold (high contrast)', colors: ['#111827', '#f3f4f6', '#374151', '#fbbf24', '#1f2937', '#fff7ed'] },
+  skyStone: { label: '● Sky + Stone (balanced)', colors: ['#0c4a6e', '#e0f2fe', '#1e293b', '#e2e8f0', '#075985', '#f8fafc'] },
+  plumMint: { label: '● Plum + Mint (balanced)', colors: ['#3f2b56', '#f5f3ff', '#4a044e', '#dcfce7', '#312e81', '#ecfeff'] }
 };
-const i18n = { en: { appTitle: 'Spin Wheel Pro' }, es: { appTitle: 'Ruleta Pro' } };
-const defaultEntries = ['Olivia','Liam','Noah','Emma','Ava','Ethan','Mia','Lucas'];
-const app = {
+const VALID_COLORS = ['#111827','#1f2937','#334155','#0f172a','#1d4ed8','#0c4a6e','#f8fafc','#f3f4f6','#e2e8f0','#fef3c7','#fbbf24','#dcfce7'];
+
+const state = {
   wheels: [], activeWheelId: null, results: [], history: [], spinning: false,
-  spinAngle: 0, velocity: 0, spinStart: 0, spinTargetMs: 11000, lastTickSector: -1,
+  angle: 0, startAngle: 0, endAngle: 0, spinStartTs: 0, spinDurationMs: 11000, lastTick: -1,
   settings: {
-    duration: 11, visibleSectors: 10, spinSlowly: false, displayDuplicates: true,
+    duration: 11, spinSlowly: false, visibleSectors: 10, displayDuplicates: true,
     tickSound: 'wood', tickVolume: 0.4, celebrateSound: 'applause', celebrateVolume: 0.6,
-    confetti: true, autoRemove: false, autoRemoveDelay: 5, winnerMessage: 'We have a winner!',
-    showRemoveBtn: true, showTitle: true, showSpinText: true, colorMode: 'palette', palette: 'vibrant',
-    wheelBgImage: '', centerImage: '', centerImageSize: 120, pageBg: '#0f172a', gradient: true,
-    shadow: true, contours: true, pointerColor: '#f8fafc', theme: 'system'
+    confetti: true, autoRemove: false, autoRemoveDelay: 5, winnerMessage: 'We have a winner!', showRemoveBtn: true,
+    theme: 'system', language: 'en', showSpinText: true, showTitle: true,
+    palette: 'aurora', primary: '#1d4ed8', accent: '#fbbf24', colorMode: 'palette',
+    wheelBgImage: '', centerImage: '', centerImageAlt: 'Decorative center image', centerImageSize: 120,
+    contours: true, shadow: true, pointerColor: '#ffffff'
   }
 };
 
-function makeWheel(name = 'Wheel 1') {
-  return { id: crypto.randomUUID(), name, title: 'My Wheel', entries: defaultEntries.map((t) => ({ text: t, weight: 1, color: null, image: '' })) };
-}
+const canvas = $('#wheelCanvas');
+const ctx = canvas.getContext('2d');
+const audioCtx = window.AudioContext ? new AudioContext() : null;
 
-function getActiveWheel(){ return app.wheels.find(w => w.id === app.activeWheelId); }
-function effectiveEntries(w) {
-  let arr = (w?.entries || []).filter(e => e.text.trim());
-  if (!app.settings.displayDuplicates) {
-    const seen = new Set(); arr = arr.filter(e => seen.has(e.text) ? false : (seen.add(e.text), true));
+function mkWheel(name = 'Wheel 1') {
+  return { id: crypto.randomUUID(), name, title: 'My Wheel', entries: PRESET_ENTRIES.map(text => ({ text, weight: 1, color: '', image: '' })) };
+}
+const activeWheel = () => state.wheels.find((w) => w.id === state.activeWheelId);
+function visibleEntries() {
+  let e = (activeWheel()?.entries || []).filter((x) => x.text.trim());
+  if (!state.settings.displayDuplicates) {
+    const seen = new Set();
+    e = e.filter((x) => (seen.has(x.text) ? false : (seen.add(x.text), true)));
   }
-  return arr;
+  return e;
 }
-function pushHistory(){ app.history.push(JSON.stringify(getActiveWheel().entries)); if (app.history.length > 50) app.history.shift(); }
 
-const canvas = $('#wheelCanvas'); const ctx = canvas.getContext('2d');
 function fitCanvas() {
-  const dpr = devicePixelRatio || 1;
-  const size = Math.min(canvas.clientWidth || 900, canvas.clientHeight || 900);
-  canvas.width = size * dpr; canvas.height = size * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const dpr = window.devicePixelRatio || 1;
+  const size = Math.max(280, Math.min(canvas.clientWidth || 760, canvas.clientHeight || 760));
+  canvas.width = size * dpr; canvas.height = size * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
 function drawWheel() {
   fitCanvas();
-  const w = getActiveWheel(); if (!w) return;
-  const entries = effectiveEntries(w); const n = Math.max(entries.length, 1);
-  const size = Math.min(canvas.clientWidth, canvas.clientHeight); const c = size / 2; const r = c - 12;
-  ctx.clearRect(0, 0, size, size);
-  if (app.settings.shadow) { ctx.shadowColor = '#0008'; ctx.shadowBlur = 18; }
-  ctx.save(); ctx.translate(c, c); ctx.rotate(app.spinAngle);
+  const entries = visibleEntries();
+  const n = Math.max(entries.length, 1);
+  const size = Math.min(canvas.clientWidth || 760, canvas.clientHeight || 760);
+  const c = size / 2, r = c - 10;
   const step = (Math.PI * 2) / n;
+  const palette = SAFE_PALETTES[state.settings.palette]?.colors || SAFE_PALETTES.aurora.colors;
 
-  if (app.settings.colorMode === 'image' && app.settings.wheelBgImage) {
-    const img = new Image(); img.src = app.settings.wheelBgImage;
-    ctx.save(); ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.clip(); ctx.drawImage(img, -r, -r, r*2, r*2); ctx.restore();
+  ctx.clearRect(0, 0, size, size);
+  if (state.settings.shadow) { ctx.shadowColor = '#0008'; ctx.shadowBlur = 18; }
+  ctx.save(); ctx.translate(c, c); ctx.rotate(state.angle);
+
+  if (state.settings.colorMode === 'image' && state.settings.wheelBgImage) {
+    const img = new Image(); img.src = state.settings.wheelBgImage;
+    ctx.save(); ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.clip(); ctx.drawImage(img, -r, -r, r * 2, r * 2); ctx.restore();
   }
+
   entries.forEach((entry, i) => {
-    const a0 = i * step, a1 = a0 + step;
-    if (app.settings.colorMode === 'palette') {
-      const pal = palettes[app.settings.palette] || palettes.vibrant;
-      ctx.fillStyle = entry.color || pal[i % pal.length];
-      ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,r,a0,a1); ctx.closePath(); ctx.fill();
+    const a0 = i * step;
+    const a1 = a0 + step;
+    ctx.fillStyle = state.settings.colorMode === 'palette' ? (entry.color || palette[i % palette.length]) : '#ffffff08';
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, r, a0, a1); ctx.closePath(); ctx.fill();
+    if (state.settings.contours) {
+      ctx.strokeStyle = '#ffffff55'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, r, a0, a1); ctx.closePath(); ctx.stroke();
     }
-    if (app.settings.contours) { ctx.strokeStyle = '#ffffff55'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,r,a0,a1); ctx.closePath(); ctx.stroke(); }
     ctx.save();
-    ctx.rotate(a0 + step / 2); ctx.translate(r * 0.68, 0); ctx.rotate(Math.PI / 2);
-    const fill = textColorForBg(ctx.fillStyle || '#fff'); ctx.fillStyle = fill;
-    ctx.font = `${Math.max(12, Math.min(22, 260 / n))}px sans-serif`; ctx.textAlign = 'center';
-    wrapText(entry.text, 0, 0, r * 0.44, 18).forEach((line, li) => ctx.fillText(line, 0, li * 18));
+    ctx.rotate(a0 + step / 2); ctx.translate(r * 0.67, 0); ctx.rotate(Math.PI / 2);
+    ctx.fillStyle = textContrast(entry.color || palette[i % palette.length]);
+    ctx.font = `${Math.max(12, Math.min(22, 280 / n))}px Inter, sans-serif`; ctx.textAlign = 'center';
+    wrapped(entry.text, r * 0.45).forEach((line, li) => ctx.fillText(line, 0, li * 18));
     ctx.restore();
   });
   ctx.restore();
 
-  ctx.beginPath(); ctx.fillStyle = '#0b1220'; ctx.arc(c, c, 68, 0, Math.PI * 2); ctx.fill();
-  if (app.settings.centerImage) {
-    const img = new Image(); img.src = app.settings.centerImage;
-    const s = app.settings.centerImageSize; ctx.save(); ctx.beginPath(); ctx.arc(c, c, s / 2, 0, Math.PI * 2); ctx.clip(); ctx.drawImage(img, c - s / 2, c - s / 2, s, s); ctx.restore();
+  // center
+  ctx.beginPath(); ctx.fillStyle = '#0d172e'; ctx.arc(c, c, 70, 0, Math.PI * 2); ctx.fill();
+  if (state.settings.centerImage) {
+    const img = new Image(); img.src = state.settings.centerImage; img.alt = state.settings.centerImageAlt;
+    const s = state.settings.centerImageSize; ctx.save(); ctx.beginPath(); ctx.arc(c,c,s/2,0,Math.PI*2); ctx.clip(); ctx.drawImage(img, c-s/2, c-s/2, s, s); ctx.restore();
   }
-  if (app.settings.showSpinText) { $('.spin-overlay').style.display = 'block'; $('.spin-overlay').textContent = 'Click to spin'; }
-  else $('.spin-overlay').style.display = 'none';
-  $('#pointer').style.borderTopColor = app.settings.pointerColor;
-}
-function textColorForBg(hex){
-  if (!hex || !hex.startsWith('#')) return '#111'; const n = hex.slice(1); const v = n.length===3? n.split('').map(c=>c+c).join(''): n;
-  const [r,g,b] = [0,2,4].map(i=>parseInt(v.slice(i,i+2),16)); const yiq = ((r*299)+(g*587)+(b*114))/1000; return yiq > 128 ? '#0f172a' : '#f8fafc';
-}
-function wrapText(t, x,y,maxW,lh){ const words=t.split(' '); const lines=[]; let line=''; for(const w of words){ const test=(line+w+' ').trim(); if(ctx.measureText(test).width>maxW && line){ lines.push(line.trim()); line=w+' '; } else line=test+' '; } lines.push(line.trim()); return lines.slice(0,2); }
 
-function spin(){
-  if (app.spinning || effectiveEntries(getActiveWheel()).length < 2) return;
-  app.spinning = true; app.spinStart = performance.now();
-  const d = (app.settings.spinSlowly ? app.settings.duration * 1.6 : app.settings.duration) * 1000;
-  app.spinTargetMs = d;
+  $('#pointer').style.borderTopColor = state.settings.pointerColor;
+  $('#spinBtn').style.display = state.settings.showSpinText ? 'inline-flex' : 'none';
+  $('#wheelTitleText').textContent = activeWheel()?.title || 'My Wheel';
+  $('#wheelTitleText').style.display = state.settings.showTitle ? 'block' : 'none';
+}
+
+function wrapped(text, maxWidth) {
+  const words = text.split(' '); let line = ''; const lines = [];
+  for (const word of words) {
+    const next = `${line}${word} `.trim();
+    if (ctx.measureText(next).width > maxWidth && line) { lines.push(line.trim()); line = `${word} `; }
+    else line = `${next} `;
+  }
+  lines.push(line.trim());
+  return lines.slice(0, 2);
+}
+function textContrast(hex) {
+  if (!hex || !hex.startsWith('#')) return '#111827';
+  const v = hex.length === 4 ? hex.slice(1).split('').map((c) => c + c).join('') : hex.slice(1);
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(v.slice(i, i + 2), 16));
+  return ((r * 299 + g * 587 + b * 114) / 1000) > 145 ? '#111827' : '#f8fafc';
+}
+
+function spin() {
+  if (state.spinning || visibleEntries().length < 2) return;
+  state.spinning = true;
+  state.spinStartTs = performance.now();
+  state.startAngle = state.angle;
   const turns = 7 + Math.random() * 7;
-  const extra = Math.random() * Math.PI * 2;
-  app.startAngle = app.spinAngle;
-  app.targetAngle = app.spinAngle + turns * Math.PI * 2 + extra;
-  requestAnimationFrame(stepSpin);
+  state.spinDurationMs = (state.settings.spinSlowly ? state.settings.duration * 1.55 : state.settings.duration) * 1000;
+  state.endAngle = state.angle + turns * Math.PI * 2 + Math.random() * Math.PI * 2;
+  requestAnimationFrame(animateSpin);
 }
-function stepSpin(ts){
-  const t = Math.min(1, (ts - app.spinStart) / app.spinTargetMs);
+function animateSpin(ts) {
+  const t = Math.min(1, (ts - state.spinStartTs) / state.spinDurationMs);
   const ease = 1 - Math.pow(1 - t, 4);
-  app.spinAngle = app.startAngle + (app.targetAngle - app.startAngle) * ease;
-  playTickIfNeeded(); drawWheel();
-  if (t < 1) requestAnimationFrame(stepSpin); else finishSpin();
+  state.angle = state.startAngle + (state.endAngle - state.startAngle) * ease;
+  playTick(); drawWheel();
+  if (t < 1) requestAnimationFrame(animateSpin); else finishSpin();
 }
-function playTickIfNeeded(){
-  const entries = effectiveEntries(getActiveWheel()); if (!entries.length) return;
-  const step = (Math.PI*2)/entries.length;
-  const idx = Math.floor((((-app.spinAngle)%(Math.PI*2)+(Math.PI*2))%(Math.PI*2))/step);
-  if (idx !== app.lastTickSector){ app.lastTickSector = idx; playTone(app.settings.tickSound, app.settings.tickVolume, 0.03); }
+function winnerIndex() {
+  const n = visibleEntries().length;
+  if (!n) return -1;
+  const step = (Math.PI * 2) / n;
+  const pointerAngle = ((1.5 * Math.PI - state.angle) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+  return Math.floor(pointerAngle / step) % n;
 }
-function winnerIndex(){
-  const entries = effectiveEntries(getActiveWheel()); const n = entries.length;
-  const step = (Math.PI*2)/n;
-  const ang = ((Math.PI*1.5 - app.spinAngle)%(Math.PI*2) + Math.PI*2)%(Math.PI*2);
-  return Math.floor(ang/step)%n;
-}
-function finishSpin(){
-  app.spinning = false;
-  const w = getActiveWheel(); const entries = effectiveEntries(w); const idx = winnerIndex(); const winner = entries[idx];
+function finishSpin() {
+  state.spinning = false;
+  const entries = visibleEntries();
+  const winner = entries[winnerIndex()];
   if (!winner) return;
-  app.results.unshift({name: winner.text, at: new Date().toISOString()}); renderResults();
-  playTone(app.settings.celebrateSound, app.settings.celebrateVolume, 0.5);
-  if (app.settings.confetti) confetti();
-  $('#winnerTitle').textContent = app.settings.winnerMessage;
+  state.results.unshift({ name: winner.text, at: new Date().toISOString() });
+  renderResults();
+  if (state.settings.confetti) launchConfetti();
+  tone(state.settings.celebrateSound, state.settings.celebrateVolume, 0.45);
+  $('#winnerTitle').textContent = state.settings.winnerMessage;
   $('#winnerName').textContent = winner.text;
-  $('#removeWinnerBtn').style.display = app.settings.showRemoveBtn ? 'inline-block' : 'none';
+  $('#removeWinnerBtn').style.display = state.settings.showRemoveBtn ? 'inline-block' : 'none';
   $('#winnerDialog').showModal();
-  if (app.settings.autoRemove) setTimeout(() => removeWinner(winner.text), app.settings.autoRemoveDelay * 1000);
+  if (state.settings.autoRemove) setTimeout(() => removeWinner(winner.text), state.settings.autoRemoveDelay * 1000);
+  persist();
 }
-function removeWinner(name){
-  const w = getActiveWheel(); w.entries = w.entries.filter(e => e.text !== name); syncEntriesUI(); drawWheel(); saveLocal();
+function playTick() {
+  const n = visibleEntries().length; if (!n) return;
+  const step = (Math.PI * 2) / n;
+  const idx = Math.floor((((-state.angle) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / step);
+  if (idx !== state.lastTick) { state.lastTick = idx; tone(state.settings.tickSound, state.settings.tickVolume, 0.03); }
 }
-function renderResults(){ $('#resultsList').innerHTML = app.results.map(r=>`<li>${r.name} <small>${new Date(r.at).toLocaleString()}</small></li>`).join(''); }
-function confetti(){ for(let i=0;i<80;i++){ const d=document.createElement('div'); d.className='confetti'; d.style.left=Math.random()*100+'vw'; d.style.background=`hsl(${Math.random()*360} 90% 60%)`; d.style.animationDelay=(Math.random()*0.4)+'s'; document.body.appendChild(d); setTimeout(()=>d.remove(),2800);} }
+function tone(kind, vol, dur) {
+  if (!audioCtx) return;
+  const freq = { wood: 180, click: 520, bell: 860, applause: 230, chime: 730, trumpet: 350 }[kind] || 300;
+  const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+  o.type = (kind === 'bell' || kind === 'chime') ? 'sine' : 'square';
+  o.frequency.value = freq; g.gain.value = vol * 0.2;
+  o.connect(g).connect(audioCtx.destination); o.start();
+  g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+  o.stop(audioCtx.currentTime + dur);
+}
+function launchConfetti() {
+  for (let i = 0; i < 70; i += 1) {
+    const d = document.createElement('div'); d.className = 'confetti';
+    d.style.left = `${Math.random() * 100}vw`; d.style.background = `hsl(${Math.random() * 360} 90% 60%)`;
+    d.style.animationDelay = `${Math.random() * 0.35}s`;
+    document.body.appendChild(d); setTimeout(() => d.remove(), 2600);
+  }
+}
 
-function playTone(kind, vol, dur){
-  const ac = (window.__ac ||= new (window.AudioContext || window.webkitAudioContext)());
-  const o = ac.createOscillator(), g = ac.createGain();
-  const freq = { wood:170, click:500, bell:900, applause:220, chime:780, trumpet:350 }[kind] || 300;
-  o.frequency.value = freq; o.type = kind==='bell'||kind==='chime' ? 'sine' : 'square'; g.gain.value = vol * 0.18;
-  o.connect(g).connect(ac.destination); o.start(); g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur); o.stop(ac.currentTime + dur);
+function removeWinner(name) {
+  const w = activeWheel();
+  w.entries = w.entries.filter((e) => e.text !== name);
+  syncEntriesUI(); drawWheel(); persist();
+}
+function renderResults() {
+  $('#resultsList').innerHTML = state.results.map((r) => `<li>${esc(r.name)} <small>${new Date(r.at).toLocaleString()}</small></li>`).join('');
+}
+function syncEntriesUI() {
+  const w = activeWheel();
+  $('#entriesInput').value = w.entries.map((e) => e.text).join('\n');
+  renderAdvancedEditor();
+  renderWheelTabs();
+}
+function syncFromEntries() {
+  pushHistory();
+  activeWheel().entries = $('#entriesInput').value.split(/\n/).map((text) => ({ text, weight: 1, color: '', image: '' }));
+  drawWheel(); persist();
+}
+function pushHistory() {
+  state.history.push(JSON.stringify(activeWheel().entries));
+  if (state.history.length > 60) state.history.shift();
+}
+function renderAdvancedEditor() {
+  const box = $('#advancedEditor');
+  if (!$('#advancedMode').checked) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  box.innerHTML = `<table><tr><th>Name</th><th>Weight</th><th>Color</th><th>Image URL</th></tr>${activeWheel().entries.map((e, i) => `<tr><td><input data-i="${i}" data-k="text" value="${esc(e.text)}"></td><td><input data-i="${i}" data-k="weight" type="number" min="1" value="${e.weight || 1}"></td><td><input data-i="${i}" data-k="color" type="color" value="${e.color || '#1d4ed8'}"></td><td><input data-i="${i}" data-k="image" value="${esc(e.image || '')}"></td></tr>`).join('')}</table>`;
+}
+function renderWheelTabs() {
+  $('#wheelTabs').innerHTML = state.wheels.map((w) => `<button class="wheel-tab ${w.id === state.activeWheelId ? 'active' : ''}" data-wid="${w.id}">${esc(w.name)}</button>`).join('');
 }
 
-function syncEntriesUI(){
-  const w = getActiveWheel(); $('#entriesInput').value = w.entries.map(e=>e.text).join('\n'); renderAdvancedEditor(); renderWheelTabs();
+function persist() {
+  localStorage.setItem('spinwheel-account-default', JSON.stringify({
+    wheels: state.wheels, activeWheelId: state.activeWheelId, results: state.results, settings: state.settings
+  }));
+  encodeUrlState();
 }
-function syncFromTextarea(){
-  const w = getActiveWheel(); pushHistory();
-  w.entries = $('#entriesInput').value.split(/\n/).map(t=>({text:t,weight:1,color:null,image:''}));
-  saveLocal(); drawWheel();
+function encodeUrlState() {
+  const payload = btoa(unescape(encodeURIComponent(JSON.stringify({
+    wheels: state.wheels, activeWheelId: state.activeWheelId, settings: state.settings, results: state.results.slice(0, 30)
+  }))));
+  history.replaceState(null, '', `#${payload}`);
 }
-function renderAdvancedEditor(){
-  const box = $('#advancedEditor'); if (!$('#advancedMode').checked){ box.classList.add('hidden'); return; }
-  box.classList.remove('hidden'); box.innerHTML = '<table><tr><th>Name</th><th>Weight</th><th>Color</th></tr>' + getActiveWheel().entries.map((e,i)=>`<tr><td><input data-ai="${i}" data-k="text" value="${escapeHtml(e.text)}"></td><td><input data-ai="${i}" data-k="weight" type="number" min="1" value="${e.weight||1}"></td><td><input data-ai="${i}" data-k="color" type="color" value="${e.color||'#3b82f6'}"></td></tr>`).join('') + '</table>';
+function restoreState() {
+  const hash = location.hash.slice(1);
+  if (hash) {
+    try {
+      const v = JSON.parse(decodeURIComponent(escape(atob(hash))));
+      state.wheels = v.wheels; state.activeWheelId = v.activeWheelId || v.wheels[0]?.id;
+      state.settings = { ...state.settings, ...v.settings }; state.results = v.results || [];
+      return;
+    } catch { /* fall through */ }
+  }
+  const local = localStorage.getItem('spinwheel-account-default');
+  if (local) {
+    try {
+      const v = JSON.parse(local);
+      state.wheels = v.wheels; state.activeWheelId = v.activeWheelId || v.wheels[0]?.id;
+      state.settings = { ...state.settings, ...v.settings }; state.results = v.results || [];
+      return;
+    } catch { /* ignore */ }
+  }
+  state.wheels = [mkWheel('Wheel 1')]; state.activeWheelId = state.wheels[0].id;
 }
-function renderWheelTabs(){
-  $('#wheelTabs').innerHTML = app.wheels.map((w,i)=>`<button class="wheel-tab ${w.id===app.activeWheelId?'active':''}" data-wid="${w.id}">${w.name}</button>`).join('');
-}
-function escapeHtml(s){ return s.replace(/[&<>'"]/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[m])); }
 
-function saveStateToUrl(){
-  const payload = { wheels: app.wheels, settings: app.settings, results: app.results.slice(0,20), activeWheelId: app.activeWheelId };
-  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-  history.replaceState(null, '', '#' + encoded);
-}
-function loadStateFromUrl(){
-  const h = location.hash.slice(1); if (!h) return false;
-  try { const parsed = JSON.parse(decodeURIComponent(escape(atob(h)))); Object.assign(app, { wheels: parsed.wheels, settings: { ...app.settings, ...parsed.settings }, results: parsed.results || [], activeWheelId: parsed.activeWheelId || parsed.wheels[0]?.id }); return true; }
-  catch { return false; }
-}
-function saveLocal(){ localStorage.setItem('spinwheel-account-default', JSON.stringify({ wheels: app.wheels, settings: app.settings, results: app.results, activeWheelId: app.activeWheelId })); saveStateToUrl(); }
-function loadLocal(){ const v = localStorage.getItem('spinwheel-account-default'); if (!v) return false; try{ const p=JSON.parse(v); Object.assign(app,p); return true;}catch{return false;} }
+function bindUI() {
+  // Navigation
+  $$('.nav-item').forEach((btn) => btn.addEventListener('click', () => {
+    $$('.nav-item').forEach((x) => x.classList.remove('active')); btn.classList.add('active');
+    $$('.view').forEach((x) => x.classList.remove('active')); $(`#${btn.dataset.view}`).classList.add('active');
+  }));
+  $('#sidebarToggle').addEventListener('click', toggleSidebar);
+  $('#reopenSidebar').addEventListener('click', toggleSidebar);
 
-function setupUI(){
+  // Core spin
   $('#spinBtn').onclick = spin; canvas.onclick = spin;
-  document.addEventListener('keydown', e => { if (e.ctrlKey && e.key === 'Enter') spin(); if ((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault(); $('#undoBtn').click();} });
-  $('#entriesInput').addEventListener('input', syncFromTextarea);
-  $('#shuffleBtn').onclick = () => { const w=getActiveWheel(); pushHistory(); w.entries.sort(()=>Math.random()-0.5); syncEntriesUI(); drawWheel(); saveLocal(); };
-  $('#sortBtn').onclick = () => { const w=getActiveWheel(); pushHistory(); w.entries.sort((a,b)=>a.text.localeCompare(b.text)); syncEntriesUI(); drawWheel(); saveLocal(); };
-  $('#undoBtn').onclick = () => { const prev=app.history.pop(); if(prev){getActiveWheel().entries=JSON.parse(prev); syncEntriesUI(); drawWheel(); saveLocal();}};
-  $('#removeWinnerBtn').onclick = () => { removeWinner($('#winnerName').textContent); $('#winnerDialog').close(); };
-  $('#keepWinnerBtn').onclick = () => $('#winnerDialog').close(); $('#closeWinnerBtn').onclick = () => $('#winnerDialog').close();
-  $$('.tab').forEach(t => t.onclick = () => { $$('.tab').forEach(x=>x.classList.remove('active')); t.classList.add('active'); $$('.tab-content').forEach(c=>c.classList.remove('active')); $('#'+t.dataset.tab).classList.add('active');});
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'Enter') spin();
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); $('#undoBtn').click(); }
+  });
 
-  $('#durationSlider').oninput = (e) => { app.settings.duration = +e.target.value; $('#durationValue').textContent = e.target.value; saveLocal(); };
-  $$('.presetDuration').forEach(b=>b.onclick = () => { $('#durationSlider').value = b.dataset.v; $('#durationSlider').dispatchEvent(new Event('input')); });
-  bindSetting('visibleSectors','input',v=>+v); bindSetting('spinSlowly','change',v=>v); bindSetting('displayDuplicates','change',v=>v,drawWheel);
-  bindSetting('tickSoundSelect','change',v=>v); bindSetting('tickVolume','input',v=>+v);
-  bindSetting('celebrateSoundSelect','change',v=>v); bindSetting('celebrateVolume','input',v=>+v);
-  bindSetting('confettiToggle','change',v=>v); bindSetting('autoRemoveToggle','change',v=>v); bindSetting('autoRemoveDelay','input',v=>+v);
-  bindSetting('winnerMessage','input',v=>v); bindSetting('showRemoveBtn','change',v=>v);
-  bindSetting('showTitleToggle','change',v=>v); bindSetting('showSpinTextToggle','change',v=>v,drawWheel);
-  bindSetting('colorMode','change',v=>v,drawWheel); bindSetting('paletteSelect','change',v=>v,drawWheel);
-  bindSetting('centerImgSize','input',v=>+v,drawWheel); bindSetting('pageBgColor','input',v=>v,()=>{document.body.style.background=v;});
-  bindSetting('gradientToggle','change',v=>v,()=>document.body.style.backgroundImage=app.settings.gradient?'linear-gradient(135deg,#ffffff10,#00000040)':'none');
-  bindSetting('wheelShadowToggle','change',v=>v,drawWheel); bindSetting('contoursToggle','change',v=>v,drawWheel);
-  bindSetting('pointerColor','input',v=>v,drawWheel);
-
-  $('#paletteSelect').innerHTML = Object.keys(palettes).map(k=>`<option value="${k}">${k}</option>`).join('');
-  $('#shareTheme').innerHTML = $('#paletteSelect').innerHTML;
-  renderCustomPalette();
-  $('#refreshColorsBtn').onclick = () => { palettes.custom = palettes.custom.sort(() => Math.random() - 0.5); renderCustomPalette(); drawWheel(); };
-
-  $('#advancedMode').onchange = () => { if ($('#advancedMode').checked) $('#entriesInput').disabled = true; else $('#entriesInput').disabled = false; renderAdvancedEditor(); };
+  // Entry controls
+  $('#entriesInput').addEventListener('input', syncFromEntries);
+  $('#shuffleBtn').onclick = () => { pushHistory(); activeWheel().entries.sort(() => Math.random() - 0.5); syncEntriesUI(); drawWheel(); persist(); };
+  $('#sortBtn').onclick = () => { pushHistory(); activeWheel().entries.sort((a, b) => a.text.localeCompare(b.text)); syncEntriesUI(); drawWheel(); persist(); };
+  $('#undoBtn').onclick = () => { const prev = state.history.pop(); if (prev) { activeWheel().entries = JSON.parse(prev); syncEntriesUI(); drawWheel(); persist(); } };
+  $('#advancedMode').onchange = () => { $('#entriesInput').disabled = $('#advancedMode').checked; renderAdvancedEditor(); };
   $('#advancedEditor').addEventListener('input', (e) => {
-    const i = +e.target.dataset.ai, key = e.target.dataset.k; if (Number.isNaN(i)) return;
-    getActiveWheel().entries[i][key] = key === 'weight' ? +e.target.value : e.target.value; drawWheel(); saveLocal();
+    const i = Number(e.target.dataset.i); const k = e.target.dataset.k; if (Number.isNaN(i)) return;
+    activeWheel().entries[i][k] = (k === 'weight') ? Number(e.target.value) : e.target.value;
+    drawWheel(); persist();
   });
-  $('#wheelTabs').addEventListener('click', (e) => {
-    const b = e.target.closest('.wheel-tab'); if(!b) return; app.activeWheelId = b.dataset.wid; syncEntriesUI(); drawWheel(); saveLocal();
-  });
-  $('#addWheelBtn').onclick = () => { const nw = makeWheel(`Wheel ${app.wheels.length + 1}`); app.wheels.push(nw); app.activeWheelId = nw.id; syncEntriesUI(); drawWheel(); saveLocal(); };
 
-  $('#collapsePanelBtn').onclick = () => { const p = $('#sidePanel'); p.style.display = p.style.display==='none' ? 'block' : 'none'; };
-  $('#fullscreenBtn').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
-
-  $('#newWheelBtn').onclick = () => { app.wheels = [makeWheel('Wheel 1')]; app.activeWheelId = app.wheels[0].id; app.results=[]; syncEntriesUI(); renderResults(); drawWheel(); saveLocal(); };
-  $('#saveWheelBtn').onclick = () => {
-    const blob = new Blob([JSON.stringify({wheels:app.wheels,settings:app.settings,results:app.results},null,2)],{type:'application/json'});
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='wheel.json'; a.click();
+  // Multi-wheel
+  $('#addWheelBtn').onclick = () => {
+    const nw = mkWheel(`Wheel ${state.wheels.length + 1}`);
+    state.wheels.push(nw); state.activeWheelId = nw.id;
+    syncEntriesUI(); drawWheel(); persist();
   };
-  $('#loadWheelBtn').onclick = () => $('#loadWheelInput').click();
-  $('#loadWheelInput').onchange = async (e) => { const f=e.target.files[0]; if(!f) return; const p=JSON.parse(await f.text()); app.wheels=p.wheels; app.settings={...app.settings,...p.settings}; app.results=p.results||[]; app.activeWheelId=app.wheels[0].id; syncEntriesUI(); drawWheel(); renderResults(); saveLocal(); };
-
-  $('#shareBtn').onclick = () => { $('#shareDialog').showModal(); $('#shareTitle').value = getActiveWheel().title; };
-  $('#generateShareBtn').onclick = () => {
-    const code = crypto.randomUUID().slice(0,8); const payload = { ...JSON.parse(JSON.stringify(app)), code, visibility: $('#shareVisibility').value, views: 0, createdAt: new Date().toISOString() };
-    const arr = JSON.parse(localStorage.getItem('spinwheel-gallery')||'[]'); arr.unshift(payload); localStorage.setItem('spinwheel-gallery', JSON.stringify(arr));
-    saveStateToUrl(); const link = location.href; $('#shareLinkOut').value = link; $('#embedCodeOut').value = `<iframe src="${link}" width="640" height="640" title="${$('#shareTitle').value}"></iframe>`;
-    $('#sharePreview').innerHTML = `<strong>Preview:</strong> ${escapeHtml($('#shareTitle').value)} / ${$('#shareVisibility').value}`; renderGallery();
-  };
-  $('#closeShareBtn').onclick = () => $('#shareDialog').close();
-
-  $('#gallerySearch').oninput = renderGallery;
-  $('#galleryList').onclick = (e) => {
-    const btn = e.target.closest('button[data-code]'); if(!btn) return;
-    const list = JSON.parse(localStorage.getItem('spinwheel-gallery')||'[]'); const item = list.find(i=>i.code===btn.dataset.code); if(!item) return;
-    item.views++; localStorage.setItem('spinwheel-gallery', JSON.stringify(list));
-    app.wheels = item.wheels; app.settings = { ...app.settings, ...item.settings }; app.results = item.results || []; app.activeWheelId = item.activeWheelId || item.wheels[0].id;
-    syncEntriesUI(); drawWheel(); renderResults(); renderGallery();
+  $('#wheelTabs').onclick = (e) => {
+    const b = e.target.closest('[data-wid]'); if (!b) return;
+    state.activeWheelId = b.dataset.wid; syncEntriesUI(); drawWheel(); persist();
   };
 
-  $('#sortResultsBtn').onclick = ()=>{app.results.sort((a,b)=>a.name.localeCompare(b.name)); renderResults(); saveLocal();};
-  $('#clearResultsBtn').onclick = ()=>{app.results=[]; renderResults(); saveLocal();};
-  $('#importSheetBtn').onclick = ()=>{
-    const u = prompt('Paste Google Sheet CSV export URL (OAuth would require backend; using URL import):'); if(!u) return;
-    fetch(u).then(r=>r.text()).then(t=>{ const lines=t.split(/\r?\n/).filter(Boolean).map(l=>l.split(',')[0]); getActiveWheel().entries=lines.map(x=>({text:x,weight:1,color:null,image:''})); syncEntriesUI(); drawWheel(); saveLocal(); }).catch(()=>alert('Import failed.'));
-  };
+  // Winner dialog
+  $('#keepWinnerBtn').onclick = () => $('#winnerDialog').close();
+  $('#closeWinnerBtn').onclick = () => $('#winnerDialog').close();
+  $('#removeWinnerBtn').onclick = () => { removeWinner($('#winnerName').textContent); $('#winnerDialog').close(); };
 
-  $('#addImageBtn').onclick = ()=> alert('Use background/center upload controls or advanced mode per-entry image fields.');
-  fileToDataUrl('#wheelBgUpload', v => { app.settings.wheelBgImage = v; drawWheel(); saveLocal(); });
-  fileToDataUrl('#centerImgUpload', v => { app.settings.centerImage = v; drawWheel(); saveLocal(); });
+  // Top actions
+  $('#newBtn').onclick = () => { state.wheels = [mkWheel('Wheel 1')]; state.activeWheelId = state.wheels[0].id; state.results = []; syncEntriesUI(); renderResults(); drawWheel(); persist(); };
+  $('#saveBtn').onclick = downloadJson;
+  $('#loadBtn').onclick = () => $('#loadInput').click();
+  $('#loadInput').onchange = loadJson;
+  $('#fullscreenBtn').onclick = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen());
+  $('#shareBtn').onclick = () => { $('#shareTitle').value = activeWheel().title; $('#shareDialog').showModal(); };
+  $('#generateShareBtn').onclick = generateShare;
+  $('#closeShareDialog').onclick = () => $('#shareDialog').close();
 
-  $('#moreBtn').onclick = () => { $('#preferencesDialog').showModal(); $('#prefShowSpinText').checked = app.settings.showSpinText; };
-  $('#prefShowSpinText').onchange = (e) => { app.settings.showSpinText = e.target.checked; $('#showSpinTextToggle').checked = e.target.checked; drawWheel(); saveLocal(); };
-  $('#themeSelect').onchange = (e)=>{ app.settings.theme=e.target.value; applyTheme(); saveLocal(); };
-  $('#closePreferencesBtn').onclick = () => $('#preferencesDialog').close();
+  // Settings dialog + accordion
+  $('#openSettingsDialog').onclick = () => $('#settingsDialog').showModal();
+  $('#closeSettingsDialog').onclick = () => $('#settingsDialog').close();
+  $$('.acc-header').forEach((h) => h.addEventListener('click', () => {
+    const panel = $(`#${h.dataset.acc}`); const open = panel.classList.toggle('open'); h.setAttribute('aria-expanded', String(open));
+  }));
 
-  $('#languageBtn').onclick = ()=> $('#languageSelect').focus();
-  $('#languageSelect').onchange = (e)=>applyLanguage(e.target.value);
+  // Settings bind
+  setPaletteOptions();
+  bind('durationSlider', 'input', (v) => { state.settings.duration = Number(v); $('#durationValue').textContent = v; });
+  $$('.preset').forEach((b) => b.onclick = () => { $('#durationSlider').value = b.dataset.v; $('#durationSlider').dispatchEvent(new Event('input')); });
+  bind('spinSlowly', 'change', (v) => state.settings.spinSlowly = v, true);
+  bind('visibleSectors', 'input', (v) => state.settings.visibleSectors = Number(v));
+  bind('tickSound', 'change', (v) => state.settings.tickSound = v);
+  bind('tickVolume', 'input', (v) => state.settings.tickVolume = Number(v));
+  bind('winnerMessage', 'input', (v) => state.settings.winnerMessage = v);
+  bind('showRemoveBtn', 'change', (v) => state.settings.showRemoveBtn = v);
+  bind('confettiToggle', 'change', (v) => state.settings.confetti = v);
+  bind('celebrateSound', 'change', (v) => state.settings.celebrateSound = v);
+  bind('celebrateVolume', 'input', (v) => state.settings.celebrateVolume = Number(v));
+  bind('autoRemove', 'change', (v) => state.settings.autoRemove = v);
+  bind('autoRemoveDelay', 'input', (v) => state.settings.autoRemoveDelay = Number(v));
+  bind('themeSelect', 'change', (v) => { state.settings.theme = v; applyTheme(); });
+  bind('languageSelect', 'change', (v) => { state.settings.language = v; applyLanguage(); });
+  bind('showSpinText', 'change', (v) => state.settings.showSpinText = v, true);
+  bind('showTitle', 'change', (v) => state.settings.showTitle = v, true);
+  bind('displayDuplicates', 'change', (v) => state.settings.displayDuplicates = v, true);
+  bind('wheelTitle', 'input', (v) => { activeWheel().title = v; drawWheel(); });
+  bind('paletteSelect', 'change', (v) => state.settings.palette = v, true);
+  bind('primaryColor', 'change', (v) => { if (VALID_COLORS.includes(v)) { state.settings.primary = v; document.documentElement.style.setProperty('--primary', v); }});
+  bind('accentColor', 'change', (v) => { if (VALID_COLORS.includes(v)) { state.settings.accent = v; document.documentElement.style.setProperty('--accent', v); }});
+  bind('colorMode', 'change', (v) => state.settings.colorMode = v, true);
+  bind('centerImgSize', 'input', (v) => state.settings.centerImageSize = Number(v), true);
+  bind('centerImageAlt', 'input', (v) => state.settings.centerImageAlt = v);
+  bind('contoursToggle', 'change', (v) => state.settings.contours = v, true);
+  bind('shadowToggle', 'change', (v) => state.settings.shadow = v, true);
+  bind('pointerColor', 'input', (v) => state.settings.pointerColor = v, true);
+
+  // Uploads/import
+  toDataUrl('#wheelBgUpload', (v) => { state.settings.wheelBgImage = v; drawWheel(); persist(); });
+  toDataUrl('#centerImgUpload', (v) => { state.settings.centerImage = v; drawWheel(); persist(); });
+  $('#importSheetBtn').onclick = importGoogleSheet;
+
+  // Results
+  $('#sortResultsBtn').onclick = () => { state.results.sort((a, b) => a.name.localeCompare(b.name)); renderResults(); persist(); };
+  $('#clearResultsBtn').onclick = () => { state.results = []; renderResults(); persist(); };
 }
 
-function bindSetting(id, evt, map, cb){ const el = $('#'+id); el.addEventListener(evt, (e)=>{ const keyMap={visibleSectors:'visibleSectors',spinSlowly:'spinSlowly',displayDuplicates:'displayDuplicates',tickSoundSelect:'tickSound',tickVolume:'tickVolume',celebrateSoundSelect:'celebrateSound',celebrateVolume:'celebrateVolume',confettiToggle:'confetti',autoRemoveToggle:'autoRemove',autoRemoveDelay:'autoRemoveDelay',winnerMessage:'winnerMessage',showRemoveBtn:'showRemoveBtn',showTitleToggle:'showTitle',showSpinTextToggle:'showSpinText',colorMode:'colorMode',paletteSelect:'palette',centerImgSize:'centerImageSize',pageBgColor:'pageBg',gradientToggle:'gradient',wheelShadowToggle:'shadow',contoursToggle:'contours',pointerColor:'pointerColor'}; app.settings[keyMap[id]]=map(e.target.type==='checkbox'?e.target.checked:e.target.value); cb?.(); saveLocal(); if(['colorMode','paletteSelect'].includes(id))drawWheel(); }); }
-function fileToDataUrl(sel, cb){ $(sel).addEventListener('change', (e)=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>cb(r.result); r.readAsDataURL(f); }); }
-function renderCustomPalette(){ $('#customPalette').innerHTML = palettes.custom.map((c,i)=>`<input type="color" data-cidx="${i}" value="${c}" />`).join(''); $('#customPalette').oninput = (e)=>{ if(e.target.dataset.cidx!==undefined){ palettes.custom[+e.target.dataset.cidx]=e.target.value; drawWheel(); } }; }
-function renderGallery(){ const q = $('#gallerySearch').value.toLowerCase(); const list=(JSON.parse(localStorage.getItem('spinwheel-gallery')||'[]')).filter(i=>i.visibility==='public' && (i.wheels?.[0]?.title||'').toLowerCase().includes(q)); $('#galleryList').innerHTML=list.map(i=>`<div class="item"><div><strong>${escapeHtml(i.wheels?.[0]?.title||'Untitled')}</strong></div><div>Code: ${i.code} | Views: ${i.views||0} | ${new Date(i.createdAt).toLocaleDateString()}</div><button data-code="${i.code}">Open</button><button data-code="${i.code}">Copy this wheel</button></div>`).join('')||'<p>No public wheels.</p>'; }
-function applyTheme(){ const t=app.settings.theme; const sys=matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'; document.body.classList.toggle('light',(t==='light')||(t==='system'&&sys==='light')); }
-function applyLanguage(lang){ document.documentElement.lang=lang; $$('[data-i18n]').forEach(el=>el.textContent=(i18n[lang]&&i18n[lang][el.dataset.i18n])||el.textContent); }
+function bind(id, event, setter, redraw = false) {
+  const el = $(`#${id}`);
+  el.addEventListener(event, (e) => {
+    setter(e.target.type === 'checkbox' ? e.target.checked : e.target.value);
+    if (redraw) drawWheel();
+    persist();
+  });
+}
+function setPaletteOptions() {
+  $('#paletteSelect').innerHTML = Object.entries(SAFE_PALETTES).map(([k, p]) => `<option value="${k}">${p.label}</option>`).join('');
+  const colorOptions = VALID_COLORS.map((c) => `<option value="${c}">${c.toUpperCase()}</option>`).join('');
+  $('#primaryColor').innerHTML = colorOptions;
+  $('#accentColor').innerHTML = colorOptions;
+}
 
-function init(){
-  const loaded = loadStateFromUrl() || loadLocal();
-  if (!loaded) { app.wheels = [makeWheel('Wheel 1')]; app.activeWheelId = app.wheels[0].id; }
-  syncEntriesUI(); renderResults(); setupUI(); drawWheel(); renderGallery(); applyTheme();
+function toggleSidebar() {
+  $('#sidebar').classList.toggle('collapsed');
+  const collapsed = $('#sidebar').classList.contains('collapsed');
+  $('#sidebarToggle').setAttribute('aria-expanded', String(!collapsed));
+  $('#reopenSidebar').classList.toggle('hidden', !collapsed);
+  $('#sidebarToggle .caret').textContent = collapsed ? '❯' : '❮';
+}
+function downloadJson() {
+  const data = JSON.stringify({ wheels: state.wheels, activeWheelId: state.activeWheelId, settings: state.settings, results: state.results }, null, 2);
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' })); a.download = 'wheel.json'; a.click();
+}
+async function loadJson(e) {
+  const f = e.target.files?.[0]; if (!f) return;
+  const v = JSON.parse(await f.text());
+  state.wheels = v.wheels; state.activeWheelId = v.activeWheelId || v.wheels[0]?.id;
+  state.results = v.results || []; state.settings = { ...state.settings, ...v.settings };
+  hydrateSettingsUI(); syncEntriesUI(); renderResults(); drawWheel(); persist();
+}
+function generateShare() {
+  encodeUrlState();
+  const link = location.href;
+  $('#shareOut').value = link;
+  $('#embedOut').value = `<iframe src="${link}" width="700" height="700" title="${esc($('#shareTitle').value || activeWheel().title)}"></iframe>`;
+}
+function importGoogleSheet() {
+  const url = prompt('Paste Google Sheets CSV export URL (OAuth flow is not possible without server).');
+  if (!url) return;
+  fetch(url).then((r) => r.text()).then((csv) => {
+    const lines = csv.split(/\r?\n/).filter(Boolean).map((l) => l.split(',')[0]);
+    activeWheel().entries = lines.map((text) => ({ text, weight: 1, color: '', image: '' }));
+    syncEntriesUI(); drawWheel(); persist();
+  }).catch(() => alert('Import failed. Check sheet link permissions.'));
+}
+function toDataUrl(selector, cb) {
+  $(selector).addEventListener('change', (e) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    const r = new FileReader(); r.onload = () => cb(r.result); r.readAsDataURL(f);
+  });
+}
+
+function hydrateSettingsUI() {
+  $('#durationSlider').value = state.settings.duration; $('#durationValue').textContent = String(state.settings.duration);
+  $('#spinSlowly').checked = state.settings.spinSlowly;
+  $('#visibleSectors').value = state.settings.visibleSectors;
+  $('#tickSound').value = state.settings.tickSound; $('#tickVolume').value = state.settings.tickVolume;
+  $('#winnerMessage').value = state.settings.winnerMessage; $('#showRemoveBtn').checked = state.settings.showRemoveBtn;
+  $('#confettiToggle').checked = state.settings.confetti; $('#celebrateSound').value = state.settings.celebrateSound; $('#celebrateVolume').value = state.settings.celebrateVolume;
+  $('#autoRemove').checked = state.settings.autoRemove; $('#autoRemoveDelay').value = state.settings.autoRemoveDelay;
+  $('#themeSelect').value = state.settings.theme; $('#languageSelect').value = state.settings.language;
+  $('#showSpinText').checked = state.settings.showSpinText; $('#showTitle').checked = state.settings.showTitle; $('#displayDuplicates').checked = state.settings.displayDuplicates;
+  $('#wheelTitle').value = activeWheel().title;
+  $('#paletteSelect').value = state.settings.palette; $('#primaryColor').value = state.settings.primary; $('#accentColor').value = state.settings.accent;
+  $('#colorMode').value = state.settings.colorMode; $('#centerImgSize').value = state.settings.centerImageSize; $('#centerImageAlt').value = state.settings.centerImageAlt;
+  $('#contoursToggle').checked = state.settings.contours; $('#shadowToggle').checked = state.settings.shadow; $('#pointerColor').value = state.settings.pointerColor;
+}
+function applyTheme() {
+  const sysLight = matchMedia('(prefers-color-scheme: light)').matches;
+  const light = state.settings.theme === 'light' || (state.settings.theme === 'system' && sysLight);
+  if (light) {
+    document.documentElement.style.setProperty('--bg', '#f8fafc');
+    document.documentElement.style.setProperty('--surface', '#ffffff');
+    document.documentElement.style.setProperty('--surface-2', '#f1f5f9');
+    document.documentElement.style.setProperty('--text', '#0f172a');
+    document.documentElement.style.setProperty('--muted', '#475569');
+    document.body.style.background = 'linear-gradient(135deg,#f8fafc,#dbeafe)';
+  } else {
+    document.documentElement.style.setProperty('--bg', '#0b1020');
+    document.documentElement.style.setProperty('--surface', '#121a2b');
+    document.documentElement.style.setProperty('--surface-2', '#1a2438');
+    document.documentElement.style.setProperty('--text', '#f3f5fb');
+    document.documentElement.style.setProperty('--muted', '#b8c2d9');
+    document.body.style.background = 'linear-gradient(135deg,#0b1020,#141f36)';
+  }
+  document.documentElement.style.setProperty('--primary', state.settings.primary);
+  document.documentElement.style.setProperty('--accent', state.settings.accent);
+}
+function applyLanguage() {
+  document.documentElement.lang = state.settings.language;
+  $$('[data-i18n]').forEach((el) => { el.textContent = I18N[state.settings.language]?.[el.dataset.i18n] || el.textContent; });
+}
+function esc(v) { return String(v).replace(/[&<>'"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[m])); }
+
+function init() {
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
+  restoreState();
+  bindUI();
+  hydrateSettingsUI();
+  syncEntriesUI(); renderResults();
+  applyTheme(); applyLanguage(); drawWheel();
   window.addEventListener('resize', drawWheel);
 }
 
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js");
 init();
