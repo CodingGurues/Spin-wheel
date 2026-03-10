@@ -14,12 +14,12 @@ const VALID_COLORS = ['#111827','#1f2937','#334155','#0f172a','#1d4ed8','#0c4a6e
 
 const state = {
   wheels: [], activeWheelId: null, results: [], history: [], spinning: false,
-  angle: 0, startAngle: 0, endAngle: 0, spinStartTs: 0, spinDurationMs: 11000, lastTick: -1,
+  angle: 0, startAngle: 0, endAngle: 0, spinStartTs: 0, spinDurationMs: 11000, lastTick: -1, idleAutoSpin: false,
   settings: {
     duration: 11, spinSlowly: false, visibleSectors: 10, displayDuplicates: true,
     tickSound: 'wood', tickVolume: 0.4, celebrateSound: 'applause', celebrateVolume: 0.6,
     confetti: true, autoRemove: false, autoRemoveDelay: 5, winnerMessage: 'We have a winner!', showRemoveBtn: true,
-    theme: 'system', language: 'en', showSpinText: true, showTitle: true,
+    theme: 'light', language: 'en', showSpinText: true, showTitle: true, autoSpinOnLoad: true, reduceMotion: false,
     palette: 'aurora', primary: '#1d4ed8', accent: '#fbbf24', colorMode: 'palette',
     wheelBgImage: '', centerImage: '', centerImageAlt: 'Decorative center image', centerImageSize: 120,
     contours: true, shadow: true, pointerColor: '#ffffff'
@@ -118,6 +118,7 @@ function textContrast(hex) {
 
 function spin() {
   if (state.spinning || visibleEntries().length < 2) return;
+  state.idleAutoSpin = false;
   state.spinning = true;
   state.spinStartTs = performance.now();
   state.startAngle = state.angle;
@@ -147,7 +148,7 @@ function finishSpin() {
   if (!winner) return;
   state.results.unshift({ name: winner.text, at: new Date().toISOString() });
   renderResults();
-  if (state.settings.confetti) launchConfetti();
+  if (state.settings.confetti && !state.settings.reduceMotion) launchConfetti();
   tone(state.settings.celebrateSound, state.settings.celebrateVolume, 0.45);
   $('#winnerTitle').textContent = state.settings.winnerMessage;
   $('#winnerName').textContent = winner.text;
@@ -261,6 +262,7 @@ function bindUI() {
   $('#spinBtn').onclick = spin; canvas.onclick = spin;
   document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key === 'Enter') spin();
+    if (e.key === 'Enter' && !['INPUT','TEXTAREA','SELECT','BUTTON'].includes(document.activeElement?.tagName)) spin();
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); $('#undoBtn').click(); }
   });
 
@@ -327,6 +329,8 @@ function bindUI() {
   bind('themeSelect', 'change', (v) => { state.settings.theme = v; applyTheme(); });
   bind('languageSelect', 'change', (v) => { state.settings.language = v; applyLanguage(); });
   bind('showSpinText', 'change', (v) => state.settings.showSpinText = v, true);
+  bind('autoSpinOnLoad', 'change', (v) => { state.settings.autoSpinOnLoad = v; if (v && !state.spinning && !state.settings.reduceMotion) startIdleAutoSpin(); else state.idleAutoSpin = false; }, true);
+  bind('reduceMotion', 'change', (v) => { state.settings.reduceMotion = v; if (v) { state.idleAutoSpin = false; } else if (state.settings.autoSpinOnLoad && !state.spinning) startIdleAutoSpin(); }, true);
   bind('showTitle', 'change', (v) => state.settings.showTitle = v, true);
   bind('displayDuplicates', 'change', (v) => state.settings.displayDuplicates = v, true);
   bind('wheelTitle', 'input', (v) => { activeWheel().title = v; drawWheel(); });
@@ -414,32 +418,47 @@ function hydrateSettingsUI() {
   $('#confettiToggle').checked = state.settings.confetti; $('#celebrateSound').value = state.settings.celebrateSound; $('#celebrateVolume').value = state.settings.celebrateVolume;
   $('#autoRemove').checked = state.settings.autoRemove; $('#autoRemoveDelay').value = state.settings.autoRemoveDelay;
   $('#themeSelect').value = state.settings.theme; $('#languageSelect').value = state.settings.language;
-  $('#showSpinText').checked = state.settings.showSpinText; $('#showTitle').checked = state.settings.showTitle; $('#displayDuplicates').checked = state.settings.displayDuplicates;
+  $('#showSpinText').checked = state.settings.showSpinText; $('#autoSpinOnLoad').checked = state.settings.autoSpinOnLoad; $('#reduceMotion').checked = state.settings.reduceMotion; $('#showTitle').checked = state.settings.showTitle; $('#displayDuplicates').checked = state.settings.displayDuplicates;
   $('#wheelTitle').value = activeWheel().title;
   $('#paletteSelect').value = state.settings.palette; $('#primaryColor').value = state.settings.primary; $('#accentColor').value = state.settings.accent;
   $('#colorMode').value = state.settings.colorMode; $('#centerImgSize').value = state.settings.centerImageSize; $('#centerImageAlt').value = state.settings.centerImageAlt;
   $('#contoursToggle').checked = state.settings.contours; $('#shadowToggle').checked = state.settings.shadow; $('#pointerColor').value = state.settings.pointerColor;
 }
 function applyTheme() {
-  const sysLight = matchMedia('(prefers-color-scheme: light)').matches;
-  const light = state.settings.theme === 'light' || (state.settings.theme === 'system' && sysLight);
-  if (light) {
-    document.documentElement.style.setProperty('--bg', '#f8fafc');
-    document.documentElement.style.setProperty('--surface', '#ffffff');
-    document.documentElement.style.setProperty('--surface-2', '#f1f5f9');
-    document.documentElement.style.setProperty('--text', '#0f172a');
-    document.documentElement.style.setProperty('--muted', '#475569');
-    document.body.style.background = 'linear-gradient(135deg,#f8fafc,#dbeafe)';
+  const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const dark = state.settings.theme === 'dark' || (state.settings.theme === 'system' && sysDark);
+  if (dark) {
+    document.documentElement.style.setProperty('--bg', '#0f1a14');
+    document.documentElement.style.setProperty('--surface', '#14241c');
+    document.documentElement.style.setProperty('--surface-2', '#1b2f25');
+    document.documentElement.style.setProperty('--text', '#ecfdf5');
+    document.documentElement.style.setProperty('--muted', '#b5d3c2');
+    document.body.style.background = 'linear-gradient(135deg,#0f1a14,#1b2f25)';
   } else {
-    document.documentElement.style.setProperty('--bg', '#0b1020');
-    document.documentElement.style.setProperty('--surface', '#121a2b');
-    document.documentElement.style.setProperty('--surface-2', '#1a2438');
-    document.documentElement.style.setProperty('--text', '#f3f5fb');
-    document.documentElement.style.setProperty('--muted', '#b8c2d9');
-    document.body.style.background = 'linear-gradient(135deg,#0b1020,#141f36)';
+    document.documentElement.style.setProperty('--bg', '#f8fbf8');
+    document.documentElement.style.setProperty('--surface', '#ffffff');
+    document.documentElement.style.setProperty('--surface-2', '#f3faf5');
+    document.documentElement.style.setProperty('--text', '#163022');
+    document.documentElement.style.setProperty('--muted', '#4f6b5e');
+    document.body.style.background = 'linear-gradient(135deg,#ffffff,#f4faf4)';
   }
   document.documentElement.style.setProperty('--primary', state.settings.primary);
   document.documentElement.style.setProperty('--accent', state.settings.accent);
+}
+
+function startIdleAutoSpin() {
+  if (state.settings.reduceMotion || !state.settings.autoSpinOnLoad || state.spinning) return;
+  state.idleAutoSpin = true;
+  let last = performance.now();
+  const radPerMs = (Math.PI * 2) / 20000;
+  function frame(ts) {
+    if (!state.idleAutoSpin || state.spinning || state.settings.reduceMotion || !state.settings.autoSpinOnLoad) return;
+    const dt = ts - last; last = ts;
+    state.angle += radPerMs * dt;
+    drawWheel();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 }
 function applyLanguage() {
   document.documentElement.lang = state.settings.language;
@@ -454,6 +473,7 @@ function init() {
   hydrateSettingsUI();
   syncEntriesUI(); renderResults();
   applyTheme(); applyLanguage(); drawWheel();
+  if (state.settings.autoSpinOnLoad && !state.settings.reduceMotion) startIdleAutoSpin();
   window.addEventListener('resize', drawWheel);
 }
 
