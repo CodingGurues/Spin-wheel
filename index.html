@@ -13,18 +13,10 @@
         <span class="caret">❮</span><span class="toggle-text">Menu</span>
       </button>
       <nav id="sidebarContent" class="sidebar-content" aria-label="Sections">
-        <button class="nav-item active" data-view="homeView" aria-label="Home" title="Home">
-          <span class="icon" aria-hidden="true">🏠</span><span class="label">Home</span>
-        </button>
-        <button class="nav-item" data-view="entriesView" aria-label="Entries" title="Entries">
-          <span class="icon" aria-hidden="true">📝</span><span class="label">Entries</span>
-        </button>
-        <button class="nav-item" data-view="resultsView" aria-label="Results" title="Results">
-          <span class="icon" aria-hidden="true">🏆</span><span class="label">Results</span>
-        </button>
-        <button class="nav-item" data-view="settingsView" aria-label="Settings" title="Settings">
-          <span class="icon" aria-hidden="true">⚙️</span><span class="label">Settings</span>
-        </button>
+        <button class="nav-item active" data-view="homeView" aria-label="Home" title="Home"><span class="icon" aria-hidden="true">🏠</span><span class="label">Home</span></button>
+        <button class="nav-item" data-view="entriesView" aria-label="Entries" title="Entries"><span class="icon" aria-hidden="true">📝</span><span class="label">Entries</span></button>
+        <button class="nav-item" data-view="resultsView" aria-label="Results" title="Results"><span class="icon" aria-hidden="true">🏆</span><span class="label">Results</span></button>
+        <button class="nav-item" data-view="settingsView" aria-label="Settings" title="Settings"><span class="icon" aria-hidden="true">⚙️</span><span class="label">Settings</span></button>
       </nav>
     </aside>
 
@@ -32,7 +24,7 @@
 
     <main class="main-content">
       <header class="topbar">
-        <h1>🎡 <span data-i18n="appTitle">Spin Wheel Pro</span> <small id="appVersion">v1.1.0</small></h1>
+        <h1>🎡 <span data-i18n="appTitle">Spin Wheel Pro</span></h1>
         <div class="toolbar" role="group" aria-label="Primary actions">
           <button id="newBtn">New</button>
           <button id="saveBtn">Save JSON</button>
@@ -53,26 +45,35 @@
               <button id="spinBtn" class="spin-btn" aria-label="Spin wheel">Click to spin</button>
             </div>
           </div>
-          <div class="quick-actions">
-            <h3>Wheels</h3>
-            <div id="wheelTabs" class="wheel-tabs"></div>
-            <button id="addWheelBtn">+ Add wheel (beta)</button>
+          <div class="quick-actions" aria-label="Entry tools">
+            <h3>Entries</h3>
+            <p class="sub">Manage names directly while viewing the wheel.</p>
+            <textarea id="entriesInput" rows="14" aria-label="Entries list"></textarea>
+            <div class="button-row">
+              <button id="shuffleBtn">Shuffle</button>
+              <button id="sortBtn">Sort A-Z</button>
+              <button id="undoBtn">Undo</button>
+              <button id="importSheetBtn">Import Google Sheet</button>
+            </div>
+            <label><input id="advancedMode" type="checkbox" /> Advanced mode (per-entry weight/color/image)</label>
+            <div id="advancedEditor" class="advanced-editor hidden" aria-live="polite"></div>
           </div>
+        </div>
+
+        <div class="mobile-nav-wrap">
+          <button id="mobileNavToggle" class="mobile-nav-toggle" aria-expanded="false" aria-controls="mobileNavMenu">☰ Menu</button>
+          <nav id="mobileNavMenu" class="mobile-nav-menu hidden" aria-label="Mobile navigation">
+            <button class="nav-item" data-view="entriesView">Entries</button>
+            <button class="nav-item" data-view="resultsView">Results</button>
+            <button class="nav-item" data-view="settingsView">Settings</button>
+          </nav>
         </div>
       </section>
 
       <section id="entriesView" class="view" aria-label="Entries editor">
         <h2>Entries</h2>
         <p class="sub">One item per line. Supports emojis and non-Latin text.</p>
-        <label><input id="advancedMode" type="checkbox" /> Advanced mode (per-entry weight/color/image)</label>
-        <textarea id="entriesInput" rows="12" aria-label="Entries list"></textarea>
-        <div id="advancedEditor" class="advanced-editor hidden" aria-live="polite"></div>
-        <div class="button-row">
-          <button id="shuffleBtn">Shuffle</button>
-          <button id="sortBtn">Sort A-Z</button>
-          <button id="undoBtn">Undo</button>
-          <button id="importSheetBtn">Import Google Sheet</button>
-        </div>
+        <p class="sub">Use Home to edit entries side-by-side with the wheel.</p>
       </section>
 
       <section id="resultsView" class="view" aria-label="Spin results">
@@ -150,8 +151,8 @@
           <label>Center image alt text <input id="centerImageAlt" placeholder="Decorative logo" /></label>
           <label>Center image size <input id="centerImgSize" type="range" min="40" max="280" value="120" /></label>
           <label><input id="contoursToggle" type="checkbox" checked /> Sector contours</label>
-          <label><input id="shadowToggle" type="checkbox" checked /> Wheel shadow</label>
-          <label>Pointer color <input id="pointerColor" type="color" value="#ffffff" /></label>
+          <label><input id="shadowToggle" type="checkbox" /> Wheel shadow</label>
+          <label>Pointer color <input id="pointerColor" type="color" value="#1f5b46" /></label>
         </div>
       </section>
 
@@ -166,21 +167,19 @@
           <label><input id="showTitle" type="checkbox" checked /> Show title</label>
           <label><input id="displayDuplicates" type="checkbox" checked /> Display duplicates</label>
           <label>Wheel title <input id="wheelTitle" value="My Wheel" /></label>
-          <p>Version: <strong>1.1.0</strong> · <a href="changelog.html" target="_blank" rel="noopener">Changelog</a></p>
+          <p><a href="changelog.html" target="_blank" rel="noopener">Changelog</a></p>
         </div>
       </section>
     </div>
 
-    <div class="button-row">
-      <button id="closeSettingsDialog">Close</button>
-    </div>
+    <div class="button-row"><button id="closeSettingsDialog">Close</button></div>
   </dialog>
 
   <dialog id="shareDialog" aria-label="Share wizard">
     <h3>Share wizard</h3>
     <p class="sub">Generate a link and embed code with current wheel state.</p>
     <label>Share title <input id="shareTitle" /></label>
-    <label>Visibility <select id="shareVisibility"><option value="spin">Anyone with link can spin</option><option value="spin-copy">Anyone can spin and copy</option><option value="public">Public (local gallery)</option></select></label>
+    <label>Visibility <select id="shareVisibility"><option value="spin">Anyone with link can spin</option><option value="spin-copy">Anyone can spin and copy</option><option value="public">Public</option></select></label>
     <button id="generateShareBtn">Generate</button>
     <textarea id="shareOut" rows="3" readonly></textarea>
     <textarea id="embedOut" rows="3" readonly></textarea>
